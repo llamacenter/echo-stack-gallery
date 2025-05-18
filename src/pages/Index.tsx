@@ -5,6 +5,7 @@ import Products from "@/components/sections/Products";
 import Services from "@/components/sections/Services";
 import Articles from "@/components/sections/Articles";
 import Contact from "@/components/sections/Contact";
+import { Toaster } from "@/components/ui/toaster";
 
 const Index = () => {
   return (
@@ -14,6 +15,7 @@ const Index = () => {
       <Services />
       <Articles />
       <Contact />
+      <Toaster />
     </Layout>
   );
 };

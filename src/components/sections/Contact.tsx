@@ -10,7 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Check, Loader2, Mail } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
+import { AlertCircle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // Contact form schema using Zod
 const contactFormSchema = z.object({
@@ -21,9 +24,14 @@ const contactFormSchema = z.object({
 
 type ContactFormValues = z.infer<typeof contactFormSchema>;
 
+// Rate limiting helper
+const RATE_LIMIT_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 export default function Contact() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  const [error, setError] = useState("");
   const { toast } = useToast();
   
   // Initialize react-hook-form with zod resolver
@@ -37,11 +45,46 @@ export default function Contact() {
   });
   
   const onSubmit = async (data: ContactFormValues) => {
+    // Clear previous states
+    setError("");
+    
+    // Check for rate limiting
+    const lastSubmissionTime = localStorage.getItem("lastContactSubmission");
+    const currentTime = Date.now();
+    
+    if (lastSubmissionTime && currentTime - parseInt(lastSubmissionTime) < RATE_LIMIT_DURATION) {
+      setIsRateLimited(true);
+      toast({
+        title: "Rate limited",
+        description: "Please wait a few minutes before submitting another message.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     setIsSubmitting(true);
     
-    // Simulate form submission delay
-    setTimeout(() => {
-      console.log("Form submitted:", data);
+    try {
+      // Submit to Supabase
+      const { error: supabaseError } = await supabase
+        .from('contacts')
+        .insert([
+          {
+            name: data.name,
+            email: data.email,
+            message: data.message,
+            created_at: new Date().toISOString()
+          }
+        ]);
+      
+      if (supabaseError) {
+        throw new Error(supabaseError.message);
+      }
+      
+      // Store submission time for rate limiting
+      localStorage.setItem("lastContactSubmission", currentTime.toString());
+      
+      // Handle success
       setIsSubmitting(false);
       setIsSuccess(true);
       
@@ -56,35 +99,16 @@ export default function Contact() {
       
       // Reset success state after animation
       setTimeout(() => setIsSuccess(false), 3000);
-    }, 1500);
-    
-    // In a real implementation, this would be a server-side action with Supabase
-    // Example:
-    // try {
-    //   await supabase.from('contacts').insert([
-    //     {
-    //       name: data.name,
-    //       email: data.email,
-    //       message: data.message,
-    //       created_at: new Date().toISOString()
-    //     }
-    //   ]);
-    //   setIsSubmitting(false);
-    //   setIsSuccess(true);
-    //   toast({
-    //     title: "Message sent successfully!",
-    //     description: "Thank you for reaching out. I'll get back to you soon.",
-    //   });
-    //   form.reset();
-    //   setTimeout(() => setIsSuccess(false), 3000);
-    // } catch (error) {
-    //   setIsSubmitting(false);
-    //   toast({
-    //     title: "Something went wrong",
-    //     description: "Your message could not be sent. Please try again.",
-    //     variant: "destructive"
-    //   });
-    // }
+    } catch (err) {
+      setIsSubmitting(false);
+      setError(err instanceof Error ? err.message : "Failed to send message");
+      
+      toast({
+        title: "Something went wrong",
+        description: "Your message could not be sent. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
   
   return (
@@ -117,6 +141,24 @@ export default function Contact() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {error && (
+                  <Alert variant="destructive" className="mb-6">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Error</AlertTitle>
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+                
+                {isRateLimited && (
+                  <Alert className="mb-6 border-amber-600">
+                    <AlertCircle className="h-4 w-4 text-amber-600" />
+                    <AlertTitle>Rate Limited</AlertTitle>
+                    <AlertDescription>
+                      You can submit another message after 5 minutes.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                     <FormField
@@ -168,7 +210,7 @@ export default function Contact() {
                     <Button 
                       type="submit" 
                       className="w-full"
-                      disabled={isSubmitting || isSuccess}
+                      disabled={isSubmitting || isSuccess || isRateLimited}
                     >
                       {isSubmitting ? (
                         <>
